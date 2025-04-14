@@ -1,0 +1,16 @@
+class TokenType:
+    IDENTIFIER = "IDENTIFIER"
+    NUMBER = "NUMBER"
+    EQUALS = "EQUALS"
+    PLUS = "PLUS"
+    MINUS = "MINUS"
+    MULTIPLY = "MULTIPLY"
+    DIVIDE = "DIVIDE"
+    LPAREN = "LPAREN"
+    RPAREN = "RPAREN"
+    PRINT = "PRINT"
+    IF = "IF"
+    ELSE = "ELSE"
+    GREATER = "GREATER"
+    LESS = "LESS"
+    EOF = "EOF"  # End of file token
