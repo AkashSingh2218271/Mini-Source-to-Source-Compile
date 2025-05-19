@@ -56,7 +56,7 @@ class Parser:
         print(f"Parsing expression at token: {self.current_token}")
         
         # Handle expressions that start with operators
-        if self.current_token.type in (TokenType.PLUS, TokenType.MINUS):
+        if self.current_token and self.current_token.type in (TokenType.PLUS, TokenType.MINUS):
             operator = self.current_token.value
             self.eat(self.current_token.type)
             operand = self.parse_expression()
@@ -79,7 +79,7 @@ class Parser:
         print(f"Parsing comparison at token: {self.current_token}")
         left = self.parse_term()
 
-        while self.current_token.type in (
+        while self.current_token and self.current_token.type in (
             TokenType.GREATER, TokenType.LESS, TokenType.GREATER_EQUALS,
             TokenType.LESS_EQUALS, TokenType.EQUALS_EQUALS, TokenType.NOT_EQUALS
         ):
@@ -122,7 +122,7 @@ class Parser:
         print(f"Parsing factor at token: {self.current_token}")
         left = self.parse_primary()
 
-        while self.current_token.type in (TokenType.MULTIPLY, TokenType.DIVIDE, TokenType.MODULO):
+        while self.current_token and self.current_token.type in (TokenType.MULTIPLY, TokenType.DIVIDE, TokenType.MODULO):
             operator = self.current_token.value
             self.eat(self.current_token.type)
             right = self.parse_primary()
@@ -133,6 +133,9 @@ class Parser:
     def parse_primary(self):
         """Parse a primary expression."""
         print(f"parse_primary: current token = {self.current_token}")
+        if not self.current_token:
+            return None
+            
         token = self.current_token
 
         if token.type == TokenType.NUMBER:
@@ -155,11 +158,11 @@ class Parser:
             self.eat(TokenType.IDENTIFIER)
             
             # Check for function call
-            if self.current_token.type == TokenType.LPAREN:
+            if self.current_token and self.current_token.type == TokenType.LPAREN:
                 return self.parse_function_call(name)
             
             # Check for list access
-            elif self.current_token.type == TokenType.LBRACKET:
+            elif self.current_token and self.current_token.type == TokenType.LBRACKET:
                 self.eat(TokenType.LBRACKET)
                 index = self.parse_expression()
                 self.eat(TokenType.RBRACKET)
@@ -174,10 +177,10 @@ class Parser:
         elif token.type == TokenType.LBRACKET:
             self.eat(TokenType.LBRACKET)
             elements = []
-            if self.current_token.type != TokenType.RBRACKET:
+            if self.current_token and self.current_token.type != TokenType.RBRACKET:
                 while True:
                     elements.append(self.parse_expression())
-                    if self.current_token.type == TokenType.RBRACKET:
+                    if not self.current_token or self.current_token.type == TokenType.RBRACKET:
                         break
                     self.eat(TokenType.COMMA)
             self.eat(TokenType.RBRACKET)
@@ -197,10 +200,10 @@ class Parser:
         """Parse a function call with its arguments."""
         self.eat(TokenType.LPAREN)
         args = []
-        if self.current_token.type != TokenType.RPAREN:
+        if self.current_token and self.current_token.type != TokenType.RPAREN:
             while True:
                 args.append(self.parse_expression())
-                if self.current_token.type == TokenType.RPAREN:
+                if not self.current_token or self.current_token.type == TokenType.RPAREN:
                     break
                 self.eat(TokenType.COMMA)
         self.eat(TokenType.RPAREN)
@@ -222,9 +225,9 @@ class Parser:
                     self.eat(TokenType.LBRACKET)
                     index = self.parse_expression()
                     self.eat(TokenType.RBRACKET)
-                    targets.append((Variable(var_name), index))
+                    targets.append(ListAccess(Variable(var_name), index))
                 else:
-                    targets.append((Variable(var_name), None))
+                    targets.append(Variable(var_name))
             
             if self.current_token.type != TokenType.COMMA:
                 break
@@ -235,18 +238,32 @@ class Parser:
         
         # Parse values
         while True:
-            values.append(self.parse_expression())
+            if self.current_token.type == TokenType.IDENTIFIER:
+                var_name = self.current_token.value
+                self.eat(TokenType.IDENTIFIER)
+                
+                # Check for list access
+                if self.current_token.type == TokenType.LBRACKET:
+                    self.eat(TokenType.LBRACKET)
+                    index = self.parse_expression()
+                    self.eat(TokenType.RBRACKET)
+                    values.append(ListAccess(Variable(var_name), index))
+                else:
+                    values.append(Variable(var_name))
+            else:
+                values.append(self.parse_expression())
+            
             if self.current_token.type != TokenType.COMMA:
                 break
             self.eat(TokenType.COMMA)
         
         # Create assignments
         statements = []
-        for (var, idx), value in zip(targets, values):
-            if idx is not None:
-                statements.append(ListAssignment(var, idx, value))
+        for target, value in zip(targets, values):
+            if isinstance(target, ListAccess):
+                statements.append(ListAssignment(target.list_expr, target.index, value))
             else:
-                statements.append(Assignment(var, value))
+                statements.append(Assignment(target, value))
         
         return statements
 
@@ -440,7 +457,7 @@ class Parser:
         print(f"Parsing logical at token: {self.current_token}")
         left = self.parse_comparison()
 
-        while self.current_token.type in (TokenType.AND, TokenType.OR):
+        while self.current_token and self.current_token.type in (TokenType.AND, TokenType.OR):
             operator = self.current_token.value
             self.eat(self.current_token.type)
             right = self.parse_comparison()

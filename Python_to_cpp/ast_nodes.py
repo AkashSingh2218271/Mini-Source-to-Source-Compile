@@ -119,7 +119,7 @@ class ForLoop(Statement):
     def __repr__(self):
         return f"ForLoop({self.var_name}, {self.iterable}, {self.body})"
 
-class RangeCall(Statement):
+class RangeCall(Expression):
     """Represents a range() function call."""
     def __init__(self, start, end=None, step=None):
         self.start = start
