@@ -2,7 +2,7 @@ from lexer import Lexer, TokenType
 from ast_nodes import (
     Assignment, Variable, BinaryOp, Number, Print, Float, String, Boolean,
     UnaryOp, IfStatement, WhileLoop, ForLoop, RangeCall, FunctionDef, FunctionCall, Return, 
-    List, ListAccess, ListAssignment, LenCall
+    List, ListAccess, ListAssignment, LenCall, Program
 )
 
 class Parser:
@@ -54,24 +54,13 @@ class Parser:
     def parse_expression(self):
         """Parse expressions with proper operator precedence."""
         print(f"Parsing expression at token: {self.current_token}")
-        
         # Handle expressions that start with operators
         if self.current_token and self.current_token.type in (TokenType.PLUS, TokenType.MINUS):
             operator = self.current_token.value
             self.eat(self.current_token.type)
             operand = self.parse_expression()
             return UnaryOp(operator, operand)
-        
         expr = self.parse_logical()
-        
-        # Handle multiple expressions separated by commas
-        if self.current_token and self.current_token.type == TokenType.COMMA:
-            expressions = [expr]
-            while self.current_token and self.current_token.type == TokenType.COMMA:
-                self.eat(TokenType.COMMA)
-                expressions.append(self.parse_logical())
-            return List(expressions)
-        
         return expr
 
     def parse_comparison(self):
@@ -201,11 +190,10 @@ class Parser:
         self.eat(TokenType.LPAREN)
         args = []
         if self.current_token and self.current_token.type != TokenType.RPAREN:
-            while True:
-                args.append(self.parse_expression())
-                if not self.current_token or self.current_token.type == TokenType.RPAREN:
-                    break
+            args.append(self.parse_expression())
+            while self.current_token and self.current_token.type == TokenType.COMMA:
                 self.eat(TokenType.COMMA)
+                args.append(self.parse_expression())
         self.eat(TokenType.RPAREN)
         return FunctionCall(name, args)
 
@@ -448,7 +436,11 @@ class Parser:
     def parse_block(self):
         """Parse a block of statements."""
         statements = []
-        while self.current_token.type not in (TokenType.EOF, TokenType.ELSE):
+        while self.current_token and self.current_token.type not in (TokenType.EOF, TokenType.ELSE):
+            # Only parse statements, not function definitions, in blocks
+            if self.current_token.type == TokenType.DEF:
+                # Skip nested function definitions (treat as top-level only)
+                break
             statements.append(self.parse_statement())
         return statements
 
@@ -467,7 +459,10 @@ class Parser:
 
     def parse(self):
         """Parse multiple statements into an AST list."""
-        ast = []
-        while self.current_token.type != TokenType.EOF:
-            ast.append(self.parse_statement())
-        return ast
+        statements = []
+        while self.current_token and self.current_token.type != TokenType.EOF:
+            if self.current_token.type == TokenType.DEF:
+                statements.append(self.parse_function_def())
+            else:
+                statements.append(self.parse_statement())
+        return Program(statements)

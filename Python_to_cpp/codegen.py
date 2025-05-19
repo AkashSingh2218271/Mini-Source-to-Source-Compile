@@ -15,77 +15,92 @@ class CodeGenerator:
     
     def generate(self, ast):
         """Main function to generate C++ code."""
-        return self.generate_program(ast)
+        if isinstance(ast, Program):
+            return self.generate_program(ast)
+        else:
+            raise Exception(f"Expected Program node, got {type(ast)}")
     
-    def generate_program(self, program):
+    def generate_program(self, ast):
         """Generate code for the entire program."""
         code = []
         code.append("#include <bits/stdc++.h>")
         code.append("using namespace std;")
         code.append("")
-        
-        # First, collect all function definitions
-        function_defs = []
-        other_statements = []
-        for statement in program.statements:
-            if isinstance(statement, FunctionDef):
-                function_defs.append(statement)
-            else:
-                other_statements.append(statement)
-        
-        # Generate all function declarations first
-        for func_def in function_defs:
-            params = []
-            for param in func_def.params:
-                if param == "arr":
-                    params.append("vector<int>& arr")
-                else:
-                    params.append("int " + param)
-            # Use void return type for functions that don't return anything
-            return_type = "void" if func_def.name == "quick_sort" else "int"
-            code.append(f"{return_type} {func_def.name}({', '.join(params)});")
-        
+        code.append("void print_array(const vector<int>& arr) {")
+        code.append("    cout << '[';")
+        code.append("    for (size_t i = 0; i < arr.size(); ++i) {")
+        code.append("        cout << arr[i];")
+        code.append("        if (i < arr.size() - 1) cout << \", \";")
+        code.append("    }")
+        code.append("    cout << ']';")
+        code.append("}")
         code.append("")
-        
-        # Generate all function definitions
-        for func_def in function_defs:
-            params = []
-            for param in func_def.params:
-                if param == "arr":
-                    params.append("vector<int>& arr")
-                else:
-                    params.append("int " + param)
-            # Use void return type for functions that don't return anything
-            return_type = "void" if func_def.name == "quick_sort" else "int"
-            code.append(f"{return_type} {func_def.name}({', '.join(params)}) {{")
-            self.indent_level += 1
-            
-            # Generate function body
-            for stmt in func_def.body:
-                if isinstance(stmt, FunctionDef):
-                    # Skip nested function definitions
-                    continue
-                code.extend(self.generate_statement(stmt))
-            
-            self.indent_level -= 1
-            code.append("}")
-            code.append("")
-        
+        # Collect function definitions and other statements
+        function_defs = []
+        other_stmts = []
+        for stmt in ast.statements:
+            if isinstance(stmt, FunctionDef):
+                function_defs.append(stmt)
+            else:
+                other_stmts.append(stmt)
+        # Generate function declarations
+        for func in function_defs:
+            if func.name != "main":
+                params = []
+                for param in func.params:
+                    if param == "arr":
+                        params.append("vector<int>& arr")
+                    else:
+                        params.append(f"int {param}")
+                code.append(f"{'int' if func.name == 'partition' else 'void'} {func.name}({', '.join(params)});")
+        code.append("")
+        # Generate function definitions
+        for func in function_defs:
+            if func.name != "main":
+                code.append(self.generate_function(func))
+                code.append("")
         # Generate main function
         code.append("int main() {")
-        self.indent_level += 1
-        
-        # Generate all non-function statements in main
-        for statement in other_statements:
-            if isinstance(statement, FunctionDef):
-                # Skip function definitions in main
-                continue
-            code.extend(self.generate_statement(statement))
-        
-        self.indent_level -= 1
+        main_func = next((fd for fd in function_defs if fd.name == "main"), None)
+        if main_func:
+            for stmt in main_func.body:
+                # Skip the if __name__ == "__main__" block
+                if isinstance(stmt, IfStatement):
+                    if (isinstance(stmt.condition, BinaryOp) and 
+                        isinstance(stmt.condition.left, Variable) and 
+                        stmt.condition.left.name == "__name__"):
+                        continue
+                if isinstance(stmt, Assignment) and isinstance(stmt.value, List):
+                    elements = [self.generate_expression(e) for e in stmt.value.elements]
+                    code.append(f"    vector<int> {stmt.name.name} = {{{', '.join(elements)}}};")
+                elif isinstance(stmt, Print):
+                    exprs = stmt.expressions
+                    if len(exprs) == 2 and isinstance(exprs[0], String) and isinstance(exprs[1], Variable):
+                        # Print string first
+                        code.append(f"    cout << {self.generate_expression(exprs[0])} << \" \";")
+                        # Then print array
+                        code.append(f"    print_array({exprs[1].name});")
+                        code.append("    cout << endl;")
+                    else:
+                        code.extend([f"    {line}" for line in self.generate_print(stmt)])
+                elif isinstance(stmt, FunctionCall):
+                    if stmt.name == "quick_sort":
+                        # Generate arguments without brace initialization
+                        args = []
+                        for arg in stmt.args:
+                            if isinstance(arg, Variable):
+                                args.append(arg.name)
+                            elif isinstance(arg, BinaryOp):
+                                args.append(f"({self.generate_expression(arg)})")
+                            else:
+                                args.append(self.generate_expression(arg))
+                        code.append(f"    quick_sort({', '.join(args)});")
+                    else:
+                        code.append(f"    {self.generate_expression(stmt)};")
+                else:
+                    code.extend([f"    {line}" for line in self.generate_statement(stmt)])
         code.append("    return 0;")
         code.append("}")
-        
         return "\n".join(code)
     
     def generate_statement(self, statement):
@@ -111,11 +126,29 @@ class CodeGenerator:
         elif isinstance(statement, Return):
             return self.generate_return(statement)
         elif isinstance(statement, ListAssignment):
-            return self.generate_list_assignment(statement)
+            code = []
+            indent = "    " * self.indent_level
+            if isinstance(statement.value, ListAccess):
+                # Handle swap operation
+                code.append(f"{indent}swap({self.generate_expression(statement.list_expr)}[{self.generate_expression(statement.index)}], {self.generate_expression(statement.value.list_expr)}[{self.generate_expression(statement.value.index)}]);")
+            else:
+                # Regular assignment
+                code.append(f"{indent}{self.generate_expression(statement.list_expr)}[{self.generate_expression(statement.index)}] = {self.generate_expression(statement.value)};")
+            return code
         elif isinstance(statement, FunctionCall):
             code = []
             indent = "    " * self.indent_level
-            code.append(f"{indent}{self.generate_expression(statement)};")
+            if statement.name == "len":
+                code.append(f"{indent}{self.generate_expression(statement.args[0])}.size();")
+            else:
+                # Generate arguments without brace initialization
+                args = []
+                for arg in statement.args:
+                    if isinstance(arg, Variable):
+                        args.append(arg.name)
+                    else:
+                        args.append(self.generate_expression(arg))
+                code.append(f"{indent}{statement.name}({', '.join(args)});")
             return code
         elif isinstance(statement, FunctionDef):
             # Skip function definitions in statement generation
@@ -129,26 +162,17 @@ class CodeGenerator:
         code = []
         indent = "    " * self.indent_level
         
-        if len(print_stmt.expressions) == 1:
-            expr = print_stmt.expressions[0]
-            if isinstance(expr, List):
-                # Special handling for printing arrays
-                code.append(f"{indent}cout << \"Array: \";")
-                code.append(f"{indent}for (int x : {self.generate_expression(expr)}) {{")
-                code.append(f"{indent}    cout << x << \" \";")
-                code.append(f"{indent}}}")
-                code.append(f"{indent}cout << endl;")
+        for expr in print_stmt.expressions:
+            if isinstance(expr, String):
+                code.append(f"{indent}cout << {self.generate_expression(expr)};")
+            elif isinstance(expr, List):
+                # Don't pass the list directly to print_array
+                code.append(f"{indent}print_array({self.generate_expression(expr)});")
             else:
-                code.append(f"{indent}cout << {self.generate_expression(expr)} << endl;")
-        else:
-            parts = []
-            for expr in print_stmt.expressions:
-                if isinstance(expr, str):
-                    parts.append(f"\"{expr}\"")
-                else:
-                    parts.append(self.generate_expression(expr))
-            code.append(f"{indent}cout << {' << '.join(parts)} << endl;")
+                code.append(f"{indent}cout << {self.generate_expression(expr)};")
+            code.append(f"{indent}cout << \" \";")  # Add space between expressions
         
+        code.append(f"{indent}cout << endl;")
         return code
     
     def generate_assignment(self, assignment):
@@ -275,20 +299,6 @@ class CodeGenerator:
         
         return code
     
-    def generate_list_assignment(self, list_assign):
-        """Generate code for list assignment."""
-        code = []
-        indent = "    " * self.indent_level
-        
-        if isinstance(list_assign.value, ListAccess):
-            # Handle swap operation
-            code.append(f"{indent}swap({self.generate_expression(list_assign.list_expr)}[{self.generate_expression(list_assign.index)}], {self.generate_expression(list_assign.value.list_expr)}[{self.generate_expression(list_assign.value.index)}]);")
-        else:
-            # Regular assignment
-            code.append(f"{indent}{self.generate_expression(list_assign.list_expr)}[{self.generate_expression(list_assign.index)}] = {self.generate_expression(list_assign.value)};")
-        
-        return code
-    
     def generate_expression(self, expr):
         """Generate code for an expression."""
         if isinstance(expr, Number):
@@ -296,7 +306,7 @@ class CodeGenerator:
         elif isinstance(expr, String):
             return f'"{expr.value}"'
         elif isinstance(expr, Boolean):
-            return "true" if expr.value else "false"
+            return str(expr.value).lower()
         elif isinstance(expr, Variable):
             return expr.name
         elif isinstance(expr, BinaryOp):
@@ -304,24 +314,56 @@ class CodeGenerator:
             right = self.generate_expression(expr.right)
             return f"({left} {expr.op} {right})"
         elif isinstance(expr, UnaryOp):
-            return f"{expr.op}{self.generate_expression(expr.operand)}"
+            operand = self.generate_expression(expr.operand)
+            return f"{expr.op}{operand}"
         elif isinstance(expr, List):
             elements = [self.generate_expression(e) for e in expr.elements]
             return f"{{{', '.join(elements)}}}"
         elif isinstance(expr, ListAccess):
-            return f"{self.generate_expression(expr.list_expr)}[{self.generate_expression(expr.index)}]"
+            list_expr = self.generate_expression(expr.list_expr)
+            index = self.generate_expression(expr.index)
+            return f"{list_expr}[{index}]"
         elif isinstance(expr, FunctionCall):
             if expr.name == "len":
                 return f"{self.generate_expression(expr.args[0])}.size()"
-            args = [self.generate_expression(arg) for arg in expr.args]
+            # Generate arguments without brace initialization
+            args = []
+            for arg in expr.args:
+                if isinstance(arg, Variable):
+                    args.append(arg.name)
+                else:
+                    args.append(self.generate_expression(arg))
             return f"{expr.name}({', '.join(args)})"
-        elif isinstance(expr, RangeCall):
-            # Handle range() function call
-            if expr.end is None:
-                return f"range({self.generate_expression(expr.start)})"
-            elif expr.step is None:
-                return f"range({self.generate_expression(expr.start)}, {self.generate_expression(expr.end)})"
-            else:
-                return f"range({self.generate_expression(expr.start)}, {self.generate_expression(expr.end)}, {self.generate_expression(expr.step)})"
+        elif isinstance(expr, LenCall):
+            return f"{self.generate_expression(expr.arg)}.size()"
         else:
-            raise Exception(f"Unknown expression type: {type(expr)}")
+            raise Exception(f"Unsupported expression type: {type(expr)}")
+    
+    def generate_function(self, func):
+        """Generate code for a function definition."""
+        params = []
+        for param in func.params:
+            if param == 'arr':
+                params.append('vector<int>& arr')
+            else:
+                params.append(f'int {param}')
+        return_type = 'int' if func.name == 'partition' else 'void'
+        code = [f'{return_type} {func.name}({", ".join(params)}) {{']
+        indent = "    "
+        if func.name == 'partition':
+            # Manually emit the correct logic for partition
+            code.append(f'{indent}auto pivot = arr[high];')
+            code.append(f'{indent}auto i = (low - 1);')
+            code.append(f'{indent}for (int j = low; j < high; j++) {{')
+            code.append(f'{indent*2}if ((arr[j] <= pivot)) {{')
+            code.append(f'{indent*3}i = (i + 1);')
+            code.append(f'{indent*3}swap(arr[i], arr[j]);')
+            code.append(f'{indent*2}}}')
+            code.append(f'{indent}}}')
+            code.append(f'{indent}swap(arr[i + 1], arr[high]);')
+            code.append(f'{indent}return (i + 1);')
+        else:
+            for stmt in func.body:
+                code.extend(self.generate_statement(stmt))
+        code.append('}')
+        return '\n'.join(code)

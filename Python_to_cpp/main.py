@@ -3,6 +3,7 @@ from parser import Parser
 from codegen import CodeGenerator
 from ast_nodes import Program
 import sys
+from pprint import pprint
 
 def transpile_python_to_cpp(input_file, output_file):
     try:
@@ -19,14 +20,15 @@ def transpile_python_to_cpp(input_file, output_file):
         # Parse
         print("\nParsing tokens into AST...")
         parser = Parser(tokens)
-        statements = parser.parse()
-        ast = Program(statements)  # Wrap statements in a Program node
+        ast = parser.parse()
+        print("\nParsed AST:")
+        pprint(ast)
         print("Parsing successful!")
 
         # Generate C++ code
         print("\nGenerating C++ code...")
         codegen = CodeGenerator()
-        cpp_code = codegen.generate(ast)  # Use generate instead of generate_code
+        cpp_code = codegen.generate(ast)
         print("Code generation successful!")
 
         # Save the C++ code
